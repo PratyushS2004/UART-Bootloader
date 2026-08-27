@@ -1,6 +1,9 @@
 #include <stdint.h>
 #include "stm32f446xx.h"
 
+void sendChar (uint8_t);
+uint8_t receiveChar (void);
+
 int main(void)
 {
 
@@ -27,6 +30,16 @@ int main(void)
 
 
   }
+}
+
+void sendChar (uint8_t c){
+  while((USART2->SR & USART_SR_TXE) == 0){ }
+  USART2->DR = c;
+}
+
+uint8_t receiveChar (void){
+  while((USART2->SR & USART_SR_RXNE) == 0){ }
+  return (uint8_t) USART2->DR;
 }
 
 
