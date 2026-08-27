@@ -1,3 +1,0 @@
-C:/Users/Pratyush/OneDrive/Documents/Stm32Projects/testBareMetal/build/CMakeFiles/testBareMetal.dir
-C:/Users/Pratyush/OneDrive/Documents/Stm32Projects/testBareMetal/build/CMakeFiles/edit_cache.dir
-C:/Users/Pratyush/OneDrive/Documents/Stm32Projects/testBareMetal/build/CMakeFiles/rebuild_cache.dir

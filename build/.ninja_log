@@ -1,5 +1,0 @@
-# ninja log v7
-54	120	8090310594356806	CMakeFiles/testBareMetal.dir/Startup/startup_stm32f446xx.s.obj	450c24cc4b956b21
-18	285	8090310593977547	CMakeFiles/testBareMetal.dir/Core/main.c.obj	35e4a862cccd168d
-49	287	8090310594295965	CMakeFiles/testBareMetal.dir/Core/system_stm32f4xx.c.obj	fee6b3ccef5d88b3
-287	399	8090310596637545	testBareMetal.elf	19bf5e35d9745c8
