@@ -1,0 +1,17 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug (OpenOCD)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "stlink",
+            "executable": "${workspaceFolder}/build/Debug/UART_Bootloader.elf",
+            "device": "STM32F446RE",
+            "interface": "swd",
+            "runToEntryPoint": "main",
+            "preLaunchTask": "Build Debug",
+            "serverpath": "C:\\ST\\STM32CubeIDE_2.2.0\\STM32CubeIDE\\plugins\\com.st.stm32cube.ide.mcu.externaltools.stlink-gdb-server.win32_2.2.500.202604010938\\tools\\bin\\ST-LINK_gdbserver.exe"
+        }
+    ]
+}

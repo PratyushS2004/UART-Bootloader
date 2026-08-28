@@ -1,0 +1,29 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Debug",
+            "type": "shell",
+            "command": "cmake --build --preset Debug",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash",
+            "type": "shell",
+            "command": "& 'C:\\Users\\Pratyush\\OneDrive\\Documents\\xpack-openocd-0.12.0-7\\bin\\openocd.exe' -s 'C:\\Users\\Pratyush\\OneDrive\\Documents\\xpack-openocd-0.12.0-7\\openocd\\scripts' -f interface/stlink.cfg -f target/stm32f4x.cfg -c 'program build/Debug/UART_Bootloader.elf verify reset exit'",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build and Flash",
+            "dependsOrder": "sequence",
+            "dependsOn": ["Build Debug", "Flash"],
+            "group": "build",
+            "problemMatcher": []
+        }
+    ]
+}
