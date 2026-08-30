@@ -2,11 +2,11 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug (OpenOCD)",
+            "name": "Debug Bootloader (OpenOCD)",
             "type": "cortex-debug",
             "request": "launch",
             "servertype": "stlink",
-            "executable": "${workspaceFolder}/build/Debug/UART_Bootloader.elf",
+            "executable": "${workspaceFolder}/build/Debug/app.elf",
             "device": "STM32F446RE",
             "interface": "swd",
             "runToEntryPoint": "main",

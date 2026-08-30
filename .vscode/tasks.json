@@ -14,7 +14,7 @@
         {
             "label": "Flash",
             "type": "shell",
-            "command": "& 'C:\\Users\\Pratyush\\OneDrive\\Documents\\xpack-openocd-0.12.0-7\\bin\\openocd.exe' -s 'C:\\Users\\Pratyush\\OneDrive\\Documents\\xpack-openocd-0.12.0-7\\openocd\\scripts' -f interface/stlink.cfg -f target/stm32f4x.cfg -c 'program build/Debug/UART_Bootloader.elf verify reset exit'",
+            "command": "& 'C:\\Users\\Pratyush\\OneDrive\\Documents\\xpack-openocd-0.12.0-7\\bin\\openocd.exe' -s 'C:\\Users\\Pratyush\\OneDrive\\Documents\\xpack-openocd-0.12.0-7\\openocd\\scripts' -f interface/stlink.cfg -f target/stm32f4x.cfg -c 'program build/Debug/app.elf verify reset exit'",
             "group": "build",
             "problemMatcher": []
         },
