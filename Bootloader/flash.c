@@ -1,3 +1,5 @@
+#include <stdint.h>
+#include "main.h"
 #include "stm32f446xx.h"
 
 uint8_t erase_single_sector(uint8_t sector);
@@ -49,15 +51,17 @@ uint8_t erase_single_sector(uint8_t sector){
             if(FLASH->SR & FLASH_SR_WRPERR){ // Write protection error
                 return 0;
             }
-        }else{ return 0; }
+        }else{ return 0; }// BSY timeout }
     return 1;
 }
 
 uint8_t clear_BSY(void) {
-    uint32_t timer = 10000000;
+    uint32_t timer = 3000;
+    uint32_t start = ms_ticks;
+
     while(FLASH->SR & FLASH_SR_BSY){ // Wait for BSY to clear
-        if(--timer == 0){
-            return 0;
+        if ((ms_ticks - start) >= timer) {
+            return 0; // Timed out
         }
     }
     return 1;

@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "main.h"
 #include "stm32f446xx.h"
 
 #define APP_OFFSET_ADDRESS 0x8008000U
@@ -6,6 +7,7 @@
 void delay(void);
 void jump_to_application(void);
 
+volatile uint32_t ms_ticks = 0;
 
 int main(void)
 {
@@ -19,8 +21,9 @@ int main(void)
 
   GPIOA->MODER &= ~GPIO_MODER_MODE5;
   GPIOA->MODER |=  GPIO_MODER_MODE5_0;
-  /* USER CODE END 2 */
 
+  SystemCoreClockUpdate();
+  SysTick_Config(SystemCoreClock / 1000);
 
   int i = 0;
   while (i < 20)
@@ -37,6 +40,9 @@ int main(void)
   jump_to_application();
 }
   
+void SysTick_Handler(void) {
+    ms_ticks++;
+}
 
 void delay(void) {
     for (volatile int i = 0; i < 500000; i++) {
