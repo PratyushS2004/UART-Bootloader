@@ -4,8 +4,8 @@
 
 uint8_t erase_single_sector(uint8_t sector);
 uint8_t wait_BSY(void);
-uint8_t sector_erase(uint8_t last_sector);
-uint8_t last_sector(uint32_t length);
+uint8_t erase_for_length(uint32_t payload_length);
+const flash_sector* last_sector(uint32_t length);
 
 typedef struct 
 {
@@ -25,18 +25,18 @@ static const flash_sector sector_table[] = {
 /* 
 Given the lengh, find the last sector the payload covers
 */
-uint8_t last_sector(uint32_t length){
+const flash_sector* last_sector(uint32_t length){
     if (length == 0) {
-        return 100; // Invalid Sector
+        return NULL; // Invalid Sector
     }
 
-    uint8_t sector = 100; //Invalid Sector
+    const flash_sector *sector = NULL; 
     uint32_t end_address = sector_table[0].address + length - 1;
-    const uint8_t total_sectors = 6;
+    const uint8_t total_sectors = sizeof(sector_table) / sizeof(sector_table[0]);;
 
     for(uint8_t i = 0; i < total_sectors; i++){
         if(end_address >= sector_table[i].address){
-            sector = sector_table[i].sector;
+            sector = &sector_table[i];
         }
     }
     return sector;
@@ -79,10 +79,14 @@ uint8_t wait_BSY(void) {
     return 1;
 }
 
-uint8_t sector_erase(uint8_t last_sector){
-    if(last_sector > 7 || last_sector < 2){ // Invalid sector
-        return 0;
+uint8_t erase_for_length(uint32_t payload_length){
+    const flash_sector *target = last_sector(payload_length);
+
+    if (target == NULL) {
+        return 0; // Invalid payload size
     }
+
+    uint8_t max_sector = target->sector;
     uint8_t erase_ok = 1;
 
     if(FLASH->CR & FLASH_CR_LOCK){
@@ -91,9 +95,10 @@ uint8_t sector_erase(uint8_t last_sector){
     FLASH->KEYR = 0xCDEF89AB; // KEY2
     }
 
+    uint8_t first_sector = sector_table[0].sector;
     if(wait_BSY()){
-        for( uint8_t sector = 2; sector <= last_sector; sector++){
-            if(erase_single_sector(sector) == 0){ // Erase helper threw an error
+        for( uint8_t sector_index = first_sector; sector_index <= max_sector; sector_index++){
+            if(erase_single_sector(sector_index) == 0){ // Erase helper threw an error
                erase_ok = 0;  
                break;
             }
