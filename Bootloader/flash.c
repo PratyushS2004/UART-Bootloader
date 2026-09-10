@@ -24,11 +24,16 @@ const flash_sector* last_sector(uint32_t length){
     if (length == 0) {
         return NULL; // Invalid Sector
     }
-
-    const flash_sector *sector = NULL; 
+ 
     uint32_t end_address = sector_table[0].address + length - 1;
     const uint8_t total_sectors = sizeof(sector_table) / sizeof(sector_table[0]);;
 
+    uint32_t end_boundary_address = sector_table[total_sectors - 1].address + 0x20000 - 1;
+    if (end_address > end_boundary_address) {
+        return NULL; // Payload too large
+    }
+
+    const flash_sector *sector = NULL;
     for(uint8_t i = 0; i < total_sectors; i++){
         if(end_address >= sector_table[i].address){
             sector = &sector_table[i];
@@ -138,7 +143,7 @@ uint8_t program_word(uint32_t address, uint32_t data){
     flash_unlock();
     
     FLASH->CR |= FLASH_CR_PG; // Set Programming
-    *(uint32_t*) address = data; // Push data into address
+    *(volatile uint32_t*) address = data; // Push data into address
     
     uint8_t bsy_ok = wait_BSY(); 
     FLASH->CR &= ~FLASH_CR_PG; // Clear PG
