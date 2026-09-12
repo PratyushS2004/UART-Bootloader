@@ -4,6 +4,26 @@
 void sendChar (uint8_t);
 uint8_t receiveChar (void);
 
+typedef enum{
+  IDLE, RX_TOTAL_LENGTH, RX_CHUNK_LENGTH, RX_CHUNK_PAYLOAD, RX_CHUNK_CRC, DONE, ERROR 
+}Boot_state;
+
+typedef struct{
+  Boot_state state;
+
+  uint8_t word_buf[4];
+  uint8_t byte_count;
+
+  uint32_t total_length;
+  uint32_t total_bytes_rx;
+
+  uint32_t expected_chunk_length;
+  uint32_t chunk_bytes_rx;
+
+  uint32_t received_CRC;
+  uint32_t calculated_CRC;
+} Boot_Context;
+
 int main(void)
 {
 
