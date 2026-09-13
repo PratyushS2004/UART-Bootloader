@@ -1,5 +1,10 @@
 #include <stdint.h>
 #include "stm32f446xx.h"
+#include <stdbool.h>
+
+#define CHUNK_PAYLOAD_SIZE 1024 // 1KB chunk payload
+#define ACK 0x06U
+#define NAK 0x15U
 
 void sendChar (uint8_t);
 uint8_t receiveChar (void);
@@ -20,9 +25,27 @@ typedef struct{
   uint32_t expected_chunk_length;
   uint32_t chunk_bytes_rx;
 
+  uint8_t  chunk_buffer[CHUNK_PAYLOAD_SIZE];
+
   uint32_t received_CRC;
   uint32_t calculated_CRC;
-} Boot_Context;
+} Boot_context;
+
+
+bool assemble_byte(Boot_context *context, uint8_t data, uint32_t *word){
+  context->word_buf[context->byte_count] = data;
+  context->byte_count++;
+
+  if(context->byte_count == 4){
+    *word = ((uint32_t)context->word_buf[0]) | ((uint32_t)context->word_buf[1] << 8) |
+                ((uint32_t)context->word_buf[2] << 16) | ((uint32_t)context->word_buf[3] << 24);
+
+    context->byte_count = 0;
+    return true;
+  }
+
+  return false; 
+}
 
 int main(void)
 {
@@ -44,9 +67,21 @@ int main(void)
   USART2->BRR = (8 << 4) | 11;     // 115200 baud & 16MHz
   USART2->CR1 |= USART_CR1_TE | USART_CR1_RE | USART_CR1_UE; // Enable TX, RX, USART
 
-  /* Infinite loop */
+  Boot_context context;
   while (1)
   {
+    switch(context.state){
+      case IDLE:
+        if((USART2->SR & USART_SR_RXNE) == 0){
+          context.byte_count = 0;
+          context.state = RX_TOTAL_LENGTH;
+        }
+        break;
+      case RX_TOTAL_LENGTH:
+        
+    }
+
+
 
 
   }
