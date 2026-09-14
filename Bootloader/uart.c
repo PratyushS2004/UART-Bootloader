@@ -27,6 +27,8 @@ typedef struct{
 
   uint8_t chunk_buffer[CHUNK_PAYLOAD_SIZE]; // 1KB buffer for CRC verification
 
+  Boot_state error_target;
+
   uint32_t received_CRC;   // CRC read from the wire
   uint32_t calculated_CRC; // Calcualted CRC
 } Boot_context;
@@ -77,6 +79,7 @@ void state_machine(void){
         uint8_t rx_byte = receiveChar();
         if (assemble_byte(&context, rx_byte, &context.total_length)) {
             if(context.total_length >= MAX_PAYLOAD_SIZE){
+              context.error_target = IDLE;
               context.state = ERROR;
             }else{
               erase_for_length(context.total_length);
@@ -86,13 +89,14 @@ void state_machine(void){
         break;
       }
       case RX_CHUNK_LENGTH:{
-        context.chunk_bytes_rx = 0; // Reset counter
         uint8_t rx_byte = receiveChar();
         if (assemble_byte(&context, rx_byte, &context.current_chunk_length)) {
             if(context.current_chunk_length > CHUNK_PAYLOAD_SIZE || 
               context.current_chunk_length > (context.total_length - context.total_bytes_rx )){
+              context.error_target = IDLE;
               context.state = ERROR;
             }else{
+              context.chunk_bytes_rx = 0; // Reset counter
               context.state = RX_CHUNK_PAYLOAD;
             }
         }
@@ -115,12 +119,14 @@ void state_machine(void){
 
           // Verify Hardware CRC
           if(!verify_chunk_crc(&context)) {
+            context.error_target = RX_CHUNK_LENGTH;
             context.state = ERROR;
             break;
           }
           
           // Commit to Flash (Only runs if CRC matched)
           if (!commit_chunk_to_flash(&context)) {
+            context.error_target = RX_CHUNK_LENGTH;
             context.state = ERROR;
             break;
           }
@@ -134,6 +140,17 @@ void state_machine(void){
             context.state = RX_CHUNK_LENGTH; // Ready for next chunk
           }
         } break;
+      }
+      case ERROR:{
+        context.state = context.error_target;
+        sendChar(NAK);
+        break;
+      }
+      case DONE:{
+        memset(&context,0,sizeof(Boot_context));
+        context.state = IDLE;
+        sendChar(ACK);
+        break;
       }
     }
   }
