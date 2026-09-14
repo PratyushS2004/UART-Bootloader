@@ -8,8 +8,6 @@
 #define ACK 0x06U
 #define NAK 0x15U
 #define FLASH_ADDR 0x08008000U
-void sendChar (uint8_t);
-uint8_t receiveChar (void);
 
 typedef enum{
   IDLE, RX_TOTAL_LENGTH, RX_CHUNK_LENGTH, RX_CHUNK_PAYLOAD, RX_CHUNK_CRC, DONE, ERROR 
@@ -32,6 +30,15 @@ typedef struct{
   uint32_t received_CRC;   // CRC read from the wire
   uint32_t calculated_CRC; // Calcualted CRC
 } Boot_context;
+
+static Boot_context context;
+
+void sendChar (uint8_t);
+uint8_t receiveChar (void);
+static inline uint32_t bytes_to_word(const uint8_t *buf);
+static bool verify_chunk_crc(Boot_context *context);
+static bool commit_chunk_to_flash(Boot_context *context);
+
 
 /**
  * @brief Assembles incoming bytes into a 4-byte buffer.
@@ -56,18 +63,13 @@ bool assemble_byte(Boot_context *context, uint8_t byte, uint32_t *word){
   return false; 
 }
 
-void state_machine(void)
-{ 
-  Boot_context context;
-  while (1)
-  {
+void state_machine(void){ 
+  while (1){
     switch(context.state){
       case IDLE:{
-        // Waiting for initial start command byte
-        if((USART2->SR & USART_SR_RXNE) != 0){
-          context.byte_count = 0;
-          context.state = RX_TOTAL_LENGTH;
-        }
+        while((USART2->SR & USART_SR_RXNE) == 0){ }
+        context.byte_count = 0;
+        context.state = RX_TOTAL_LENGTH;  
         break;
       }
       case RX_TOTAL_LENGTH:{
@@ -84,6 +86,7 @@ void state_machine(void)
         break;
       }
       case RX_CHUNK_LENGTH:{
+        context.chunk_bytes_rx = 0; // Reset counter
         uint8_t rx_byte = receiveChar();
         if (assemble_byte(&context, rx_byte, &context.current_chunk_length)) {
             if(context.current_chunk_length > CHUNK_PAYLOAD_SIZE || 
@@ -109,46 +112,66 @@ void state_machine(void)
       case RX_CHUNK_CRC:{
         uint8_t rx_byte = receiveChar();
         if (assemble_byte(&context, rx_byte, &context.received_CRC)) {
-          CRC->CR = 1; // Reset CRC peripheral state
-          for (uint32_t i = 0; i < context.current_chunk_length; i += 4) {
-              // Assemble 4 raw bytes -> uint32_t word (LSB first)
-              uint32_t word = ((uint32_t)context.chunk_buffer[i]) | ((uint32_t)context.chunk_buffer[i + 1] << 8)  |
-                              ((uint32_t)context.chunk_buffer[i + 2] << 16) | ((uint32_t)context.chunk_buffer[i + 3] << 24);
-  
-              CRC->DR = word; // Feed directly into CRC hardware
-          }
-          context.calculated_CRC = CRC->DR;
-          if(context.calculated_CRC != context.received_CRC){
+
+          // Verify Hardware CRC
+          if(!verify_chunk_crc(&context)) {
             context.state = ERROR;
+            break;
           }
-          else{
-            uint32_t running_index = FLASH_ADDR + context.total_bytes_rx;
-            uint8_t flash_ok = 1;
-            for (uint32_t i = 0; i < context.current_chunk_length; i += 4) {
-                // Assemble 4 raw bytes -> uint32_t word (LSB first)
-                uint32_t word = ((uint32_t)context.chunk_buffer[i]) | ((uint32_t)context.chunk_buffer[i + 1] << 8)  |
-                               ((uint32_t)context.chunk_buffer[i + 2] << 16) | ((uint32_t)context.chunk_buffer[i + 3] << 24);
-                if(program_word(running_index + i, word) != 1){
-                  context.state = ERROR;
-                  flash_ok = 0;
-                  break;
-                }
-            }
-            if(flash_ok){
-              context.total_bytes_rx += context.current_chunk_length;
-              if (context.total_bytes_rx >= context.total_length) {
-                  context.state = DONE;
-              }else {
-                context.state = RX_CHUNK_LENGTH; // Ready for next chunk
-              }
-            }
-      
+          
+          // Commit to Flash (Only runs if CRC matched)
+          if (!commit_chunk_to_flash(&context)) {
+            context.state = ERROR;
+            break;
           }
-      } break;
+
+          // Success: Update Progress & Transition
+          context.total_bytes_rx += context.current_chunk_length;
+
+          if (context.total_bytes_rx >= context.total_length) {
+            context.state = DONE;
+          }else {
+            context.state = RX_CHUNK_LENGTH; // Ready for next chunk
+          }
+        } break;
+      }
     }
   }
 }
+
+//Little-endian helper
+static inline uint32_t bytes_to_word(const uint8_t *buf) {
+    return ((uint32_t)buf[0])        |
+           ((uint32_t)buf[1] << 8)  |
+           ((uint32_t)buf[2] << 16) |
+           ((uint32_t)buf[3] << 24);
 }
+
+//CRC Verification (Returns true if match, false if fail)
+static bool verify_chunk_crc(Boot_context *context) {
+    CRC->CR = 1; // Reset CRC peripheral state
+
+    for (uint32_t i = 0; i < context->current_chunk_length; i += 4) {
+        CRC->DR = bytes_to_word(&context->chunk_buffer[i]);
+    }
+
+    context->calculated_CRC = CRC->DR;
+    return (context->calculated_CRC == context->received_CRC);
+}
+
+// Flash Programming (Returns ttrue if all words written OK, false on hardware error)
+static bool commit_chunk_to_flash(Boot_context *context) {
+    uint32_t base_addr = FLASH_ADDR + context->total_bytes_rx;
+
+    for (uint32_t i = 0; i < context->current_chunk_length; i += 4) {
+        uint32_t word = bytes_to_word(&context->chunk_buffer[i]);
+        if (program_word(base_addr + i, word) != 1) {
+            return false; // Hardware write failure
+        }
+    }
+    return true; // All words programmed successfully
+}
+
 void UART_Config(void){
   // Enable clock
   RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
