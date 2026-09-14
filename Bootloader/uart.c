@@ -7,7 +7,7 @@
 #define MAX_PAYLOAD_SIZE 491520 // 480KB
 #define ACK 0x06U
 #define NAK 0x15U
-
+#define FLASH_ADDR 0x08008000U
 void sendChar (uint8_t);
 uint8_t receiveChar (void);
 
@@ -95,19 +95,60 @@ void state_machine(void)
         }
         break;
       }
+      case RX_CHUNK_PAYLOAD:{
+        uint8_t rx_byte = receiveChar();
+
+        context.chunk_buffer[context.chunk_bytes_rx] = rx_byte;
+        context.chunk_bytes_rx++;
+
+        if(context.chunk_bytes_rx == context.current_chunk_length){
+          context.state = RX_CHUNK_CRC;
+        }
+        break;
+      }
+      case RX_CHUNK_CRC:{
+        uint8_t rx_byte = receiveChar();
+        if (assemble_byte(&context, rx_byte, &context.received_CRC)) {
+          CRC->CR = 1; // Reset CRC peripheral state
+          for (uint32_t i = 0; i < context.current_chunk_length; i += 4) {
+              // Assemble 4 raw bytes -> uint32_t word (LSB first)
+              uint32_t word = ((uint32_t)context.chunk_buffer[i]) | ((uint32_t)context.chunk_buffer[i + 1] << 8)  |
+                              ((uint32_t)context.chunk_buffer[i + 2] << 16) | ((uint32_t)context.chunk_buffer[i + 3] << 24);
+  
+              CRC->DR = word; // Feed directly into CRC hardware
+          }
+          context.calculated_CRC = CRC->DR;
+          if(context.calculated_CRC != context.received_CRC){
+            context.state = ERROR;
+          }
+          else{
+            uint32_t running_index = FLASH_ADDR + context.total_bytes_rx;
+            uint8_t flash_ok = 1;
+            for (uint32_t i = 0; i < context.current_chunk_length; i += 4) {
+                // Assemble 4 raw bytes -> uint32_t word (LSB first)
+                uint32_t word = ((uint32_t)context.chunk_buffer[i]) | ((uint32_t)context.chunk_buffer[i + 1] << 8)  |
+                               ((uint32_t)context.chunk_buffer[i + 2] << 16) | ((uint32_t)context.chunk_buffer[i + 3] << 24);
+                if(program_word(running_index + i, word) != 1){
+                  context.state = ERROR;
+                  flash_ok = 0;
+                  break;
+                }
+            }
+            if(flash_ok){
+              context.total_bytes_rx += context.current_chunk_length;
+              if (context.total_bytes_rx >= context.total_length) {
+                  context.state = DONE;
+              }else {
+                context.state = RX_CHUNK_LENGTH; // Ready for next chunk
+              }
+            }
       
-    
-    
+          }
+      } break;
     }
-
-
-
-
-
-
   }
 }
-
+}
 void UART_Config(void){
   // Enable clock
   RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
