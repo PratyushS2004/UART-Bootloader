@@ -1,66 +1,54 @@
 #include <stdint.h>
 #include "main.h"
 #include "stm32f446xx.h"
+#include <stdbool.h>
 
-#define APP_OFFSET_ADDRESS 0x8008000U
+static bool is_button_pressed (void);
 
-void delay(void);
-void jump_to_application(void);
-
+// Global millisecond tick counter updated by SysTick ISR
 volatile uint32_t ms_ticks = 0;
 
 int main(void)
 {
+    // Check boot pin condition before enabling bootloader peripherals.
+    // If button is not held down (returns false), boot straight to application.
+    if(!is_button_pressed()){
+        jump_to_application();
+    }
+        
+    // Setup System Clock & SysTick (1ms interrupt) 
+    SystemCoreClockUpdate();
+    SysTick_Config(SystemCoreClock / 1000);
 
-  /* USER CODE BEGIN SysInit */
-  RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
-  /* USER CODE END SysInit */
+    // Enable hardware CRC peripheral clock (required for chunk CRC verification)
+    RCC->AHB1ENR |= RCC_AHB1ENR_CRCEN;
 
-  /* Initialize all configured peripherals */
-  /* USER CODE BEGIN 2 */
-
-  GPIOA->MODER &= ~GPIO_MODER_MODE5;
-  GPIOA->MODER |=  GPIO_MODER_MODE5_0;
-
-  SystemCoreClockUpdate();
-  SysTick_Config(SystemCoreClock / 1000);
-
-  int i = 0;
-  while (i < 20)
-  {
-
-    GPIOA->BSRR = GPIO_BSRR_BS5;
-    delay();
-
-    GPIOA->BSRR = GPIO_BSRR_BR5;
-    delay();
-
-    i++;
-  }
-  jump_to_application();
+    // Initialize Flash parallelism, UART peripheral, and launch bootloader FSM
+    flash_init();
+    UART_Config();
+    state_machine();
 }
-  
+
+// SysTick interrupt service routine
 void SysTick_Handler(void) {
     ms_ticks++;
 }
 
-void delay(void) {
-    for (volatile int i = 0; i < 500000; i++) {
-        __asm("nop"); // Forces the CPU to wait one instruction cycle
-    }
+/*
+ * Checks if the user button (PC13 / Blue Button B1 on Nucleo) is pressed.
+ * Logic: PC13 is Active-LOW (0 = Pressed, 1 = Released).
+ */
+static bool is_button_pressed (void){
+    // Enable GPIOC clock
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN;
+
+    // Configure PC13 as Input Mode
+    GPIOC->MODER &= ~GPIO_MODER_MODE13_Msk;
+
+    // Enable Internal Pull-Up
+    GPIOC->PUPDR &= ~GPIO_PUPDR_PUPD13_Msk;
+    GPIOC->PUPDR |=  GPIO_PUPDR_PUPD13_0;
+
+    // Returns true if pin reads 0 (button pressed)
+    return ((GPIOC->IDR & GPIO_IDR_ID13) == 0);
 }
-
-typedef void (*ResetHandler_t)(void);
-
-void jump_to_application(void){   
-
-    SCB->VTOR = (uint32_t)APP_OFFSET_ADDRESS;
-    uint32_t app_msp = *(uint32_t *)APP_OFFSET_ADDRESS;
-    ResetHandler_t app_reset_handler;
-    app_reset_handler = (ResetHandler_t)(*((uint32_t *)(APP_OFFSET_ADDRESS + 4)));
-
-    __set_MSP(app_msp);
-    app_reset_handler();
-
-}
-
