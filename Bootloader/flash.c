@@ -3,11 +3,14 @@
 #include "stm32f446xx.h"
 #include <stddef.h>
 
-uint8_t erase_single_sector(uint8_t sector);
-uint8_t wait_BSY(void);
-uint8_t erase_for_length(uint32_t payload_length);
-const flash_sector* last_sector(uint32_t length);
+#define FLASH_TIMEOUT_MS 3000 
+#define FLASH_ALL_ERRORS (FLASH_SR_WRPERR | FLASH_SR_PGAERR | FLASH_SR_PGPERR | FLASH_SR_PGSERR)
 
+static uint8_t erase_single_sector(uint8_t sector);
+static uint8_t wait_BSY(void);
+static const flash_sector* last_sector(uint32_t length);
+
+// Flash sector allocation table for bootloader application space (Sectors 2 through 7)
 const flash_sector sector_table[] = {
     {2, 0x08008000}, // Sector 2, 16K
     {3, 0x0800C000}, // Sector 3, 16K
@@ -17,16 +20,14 @@ const flash_sector sector_table[] = {
     {7, 0x08060000}  // Sector 7, 128K
 };
 
-/* 
-Given the lengh, find the last sector the payload covers
-*/
-const flash_sector* last_sector(uint32_t length){
+// Finds the highest Flash sector required to hold the specified payload length
+static const flash_sector* last_sector(uint32_t length){
     if (length == 0) {
         return NULL; // Invalid Sector
     }
- 
+
     uint32_t end_address = sector_table[0].address + length - 1;
-    const uint8_t total_sectors = sizeof(sector_table) / sizeof(sector_table[0]);;
+    const uint8_t total_sectors = sizeof(sector_table) / sizeof(sector_table[0]);
 
     uint32_t end_boundary_address = sector_table[total_sectors - 1].address + 0x20000 - 1;
     if (end_address > end_boundary_address) {
@@ -43,6 +44,8 @@ const flash_sector* last_sector(uint32_t length){
 }
 
 /* Private Hardware Helpers */
+
+// Unlocks Flash control register (FLASH_CR) if locked
 static void flash_unlock(void) {
     if (FLASH->CR & FLASH_CR_LOCK) {
         FLASH->KEYR = 0x45670123;
@@ -50,48 +53,43 @@ static void flash_unlock(void) {
     }
 }
 
+// Waits for ongoing operations to complete and locks FLASH_CR
 static void flash_lock(void) {
     wait_BSY(); // Guard against writing to CR while BSY is high
     FLASH->CR |= FLASH_CR_LOCK;
 }
 
-/*
-Erases sector.
-Returns 1 for its successful or 0 if not.
-*/
-uint8_t erase_single_sector(uint8_t sector){
+// Erases a single Flash sector by sector number. Returns 1 on success, 0 on failure.
+static uint8_t erase_single_sector(uint8_t sector){
     FLASH->CR &= ~FLASH_CR_SNB; // Clear SNB
     FLASH->CR |= FLASH_CR_SER;  // Sector Erase Activated
     FLASH->CR |= sector << FLASH_CR_SNB_Pos; // Select sector to erase
     FLASH->CR |= FLASH_CR_STRT; // Trigger erase operation
 
-    uint8_t bsy_ok = wait_BSY();
+    uint8_t check = wait_BSY(); // Check BSY status
     FLASH->CR &= ~FLASH_CR_SER; // Clear SER
-
-    if(!bsy_ok){ // Check BSY status
-        return 0;
-    }
     
-    if(FLASH->SR & FLASH_SR_WRPERR){ // Write protection error
-        FLASH->SR |= FLASH_SR_WRPERR; // Clear flag
-        return 0; 
+    if(FLASH->SR & FLASH_ALL_ERRORS){ 
+        FLASH->SR |= FLASH_ALL_ERRORS; // Clear flags
+        check = 0; 
     }
 
-    return 1;
+    return check;
 }
 
-uint8_t wait_BSY(void) {
-    uint32_t timer = 3000;
+// Polls the BSY flag until Flash hardware is idle or times out
+static uint8_t wait_BSY(void) {
     uint32_t start = ms_ticks;
 
     while(FLASH->SR & FLASH_SR_BSY){ // Wait for BSY to clear
-        if ((ms_ticks - start) >= timer) {
+        if ((ms_ticks - start) >= FLASH_TIMEOUT_MS) {
             return 0; // Timed out
         }
     }
     return 1;
 }
 
+// Erases all sectors required to fit the specified payload length
 uint8_t erase_for_length(uint32_t payload_length){
     const flash_sector *target = last_sector(payload_length);
 
@@ -121,6 +119,7 @@ uint8_t erase_for_length(uint32_t payload_length){
     return erase_ok;
 }
 
+// Sets Flash programming parallelism (PSIZE) for 32-bit operations
 void flash_init(void) {
     flash_unlock();
 
@@ -131,6 +130,7 @@ void flash_init(void) {
     flash_lock();
 }
 
+// Programs a single 32-bit word to Flash at a 4-byte aligned address
 uint8_t program_word(uint32_t address, uint32_t data){
     if (address % 4 != 0) { // Checks 32-bit (4-byte) alignment
         return 0;
@@ -145,18 +145,14 @@ uint8_t program_word(uint32_t address, uint32_t data){
     FLASH->CR |= FLASH_CR_PG; // Set Programming
     *(volatile uint32_t*) address = data; // Push data into address
     
-    uint8_t bsy_ok = wait_BSY(); 
+    uint8_t check = wait_BSY();
     FLASH->CR &= ~FLASH_CR_PG; // Clear PG
 
     flash_lock();
 
-    if(!bsy_ok){ // Check BSY status
-        return 0;
+    if (FLASH->SR & FLASH_ALL_ERRORS){ // Check status flags
+        FLASH->SR |= FLASH_ALL_ERRORS; // Clear status flags
+        check = 0;
     }
-
-    if (FLASH->SR & (FLASH_SR_PGAERR | FLASH_SR_PGPERR | FLASH_SR_PGSERR )){ // Check status flags
-        FLASH->SR |= FLASH_SR_PGAERR | FLASH_SR_PGPERR | FLASH_SR_PGSERR; // Clear status flags
-        return 0;
-    }
-    return 1;
+    return check;
 }
