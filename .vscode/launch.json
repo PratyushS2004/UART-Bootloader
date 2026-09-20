@@ -6,7 +6,7 @@
             "type": "cortex-debug",
             "request": "launch",
             "servertype": "stlink",
-            "executable": "${workspaceFolder}/build/Debug/app.elf",
+            "executable": "${workspaceFolder}/build/Debug/bootloader.elf",
             "device": "STM32F446RE",
             "interface": "swd",
             "runToEntryPoint": "main",
