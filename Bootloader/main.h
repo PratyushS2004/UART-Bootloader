@@ -4,12 +4,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "stm32f446xx.h"
+#include "memory_map.h"
 
 #define CHUNK_PAYLOAD_SIZE 1024 // 1KB chunk payload
 #define MAX_PAYLOAD_SIZE 491520 // 480KB
-#define SRAM_START  0x20000000U
-#define SRAM_END    0x20020000U
-#define FLASH_ADDR 0x08008000U
 
 // Flash Module Data Structures
 typedef struct {
@@ -29,6 +27,7 @@ void flash_init(void);
 // UART & Bootloader Public API (uart.c)
 void state_machine(void);
 void UART_Config(void);
+bool app_is_valid(void);
 void jump_to_application(void);
 
 #endif

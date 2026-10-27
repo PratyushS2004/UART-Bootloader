@@ -2,6 +2,7 @@
 #include "stm32f446xx.h"
 #include <stdbool.h>
 #include "main.h"
+#include "vector_check.h"
 #include <string.h>
 
 #define ACK 0x06U
@@ -163,7 +164,14 @@ void state_machine(void){
         break;
       }
       case DONE:{
-        send_char(ACK); // Final verification ACK sent 
+        // Validate while UART is still alive, on failure NAK and wait for a new image
+        if (!app_is_valid()) {
+          context.error_target = IDLE;
+          context.state = ERROR;
+          break;
+        }
+
+        send_char(ACK); // Image verified and vector table checked, jump is going ahead
 
         // Wait for Transmission Complete flag
         while((USART2->SR & USART_SR_TC) == 0){ }
@@ -266,6 +274,14 @@ static uint8_t receive_char (void){
 
 typedef void (*ResetHandler_t)(void);
 
+// Reads the app's first two vector table words and hands them to the pure check
+bool app_is_valid(void) {
+  uint32_t app_msp   = *(volatile uint32_t *)FLASH_ADDR;
+  uint32_t app_reset = *(volatile uint32_t *)(FLASH_ADDR + 4);
+  return vector_table_valid(app_msp, app_reset);
+}
+
+// Caller must have checked app_is_valid() first, this never returns
 void jump_to_application(void) {
   // Disable all global interrupts so no active vectors fire during the jump
   __disable_irq();
@@ -291,18 +307,13 @@ void jump_to_application(void) {
   uint32_t app_msp = *(volatile uint32_t *)FLASH_ADDR;
   ResetHandler_t app_reset_handler = (ResetHandler_t)(*(volatile uint32_t *)(FLASH_ADDR + 4));
 
- if((app_msp >= SRAM_START) && (app_msp <= SRAM_END)) {
-   // Set the Main Stack Pointer
-   __set_MSP(app_msp);
+  // Set the Main Stack Pointer
+  __set_MSP(app_msp);
 
-   // Re-enable interrupts before entering the application
-   __enable_irq();
+  // Re-enable interrupts before entering the application
+  __enable_irq();
 
-   // Branch to the application's Reset_Handler
-   app_reset_handler();
-  }else {
-   // Invalid vector table: Force a system reset
-   NVIC_SystemReset();
-  }
+  // Branch to the application's Reset_Handler
+  app_reset_handler();
 }
 

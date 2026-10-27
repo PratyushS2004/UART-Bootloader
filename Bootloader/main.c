@@ -11,8 +11,9 @@ volatile uint32_t ms_ticks = 0;
 int main(void)
 {
     // Check boot pin condition before enabling bootloader peripherals.
-    // If button is not held down (returns false), boot straight to application.
-    if(!is_button_pressed()){
+    // If button is not held down and the app looks valid, boot straight to application.
+    // Otherwise fall through and run the bootloader so a blank chip can be programmed.
+    if(!is_button_pressed() && app_is_valid()){
         jump_to_application();
     }
         
