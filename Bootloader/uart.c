@@ -293,6 +293,7 @@ void jump_to_application(void) {
   SysTick->CTRL = 0;
   SysTick->LOAD = 0;
   SysTick->VAL  = 0;
+  SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk; 
 
   // Clear peripheral interrupt pending bits in the NVIC
   for(uint8_t i = 0; i < 8; i++) {
@@ -307,13 +308,20 @@ void jump_to_application(void) {
   uint32_t app_msp = *(volatile uint32_t *)FLASH_ADDR;
   ResetHandler_t app_reset_handler = (ResetHandler_t)(*(volatile uint32_t *)(FLASH_ADDR + 4));
 
-  // Set the Main Stack Pointer
-  __set_MSP(app_msp);
+  __asm volatile (
+    // Set the Main Stack Pointer
+    "msr msp, %0 \n"
 
-  // Re-enable interrupts before entering the application
-  __enable_irq();
+    // Re-enable interrupts before entering the application
+    "cpsie i \n"
 
-  // Branch to the application's Reset_Handler
-  app_reset_handler();
+    // Branch to the application's Reset_Handler
+    "bx  %1      \n"
+    :
+    : "r" (app_msp), "r" (app_reset_handler)
+  );
+
+  // Can't reach this point
+  __builtin_unreachable();
 }
 

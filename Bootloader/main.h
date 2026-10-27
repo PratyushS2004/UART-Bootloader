@@ -28,6 +28,6 @@ void flash_init(void);
 void state_machine(void);
 void UART_Config(void);
 bool app_is_valid(void);
-void jump_to_application(void);
+void jump_to_application(void)__attribute__((noreturn));
 
 #endif
