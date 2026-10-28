@@ -10,19 +10,22 @@ volatile uint32_t ms_ticks = 0;
 
 int main(void)
 {
-    // Check boot pin condition before enabling bootloader peripherals.
-    // If button is not held down and the app looks valid, boot straight to application.
-    // Otherwise fall through and run the bootloader so a blank chip can be programmed.
-    if(!is_button_pressed() && app_is_valid()){
+    // Enable hardware CRC peripheral clock. Needed for chunk CRC verification, and now also for
+    // the boot-time marker check, so it has to come before the jump decision. Like GPIOC below,
+    // the jump leaves it on, which is harmless since the app sets its own clocks with |=.
+    RCC->AHB1ENR |= RCC_AHB1ENR_CRCEN;
+
+    // Check boot pin condition before enabling the other bootloader peripherals.
+    // If button is not held down and the app is valid, boot straight to application. That means
+    // a sane vector table and a marker whose CRC matches the image. Otherwise fall through and
+    // run the bootloader so a blank or torn chip can be programmed.
+    if(!is_button_pressed() && app_is_valid() && image_marker_valid()){
         jump_to_application();
     }
-        
-    // Setup System Clock & SysTick (1ms interrupt) 
+
+    // Setup System Clock & SysTick (1ms interrupt)
     SystemCoreClockUpdate();
     SysTick_Config(SystemCoreClock / 1000);
-
-    // Enable hardware CRC peripheral clock (required for chunk CRC verification)
-    RCC->AHB1ENR |= RCC_AHB1ENR_CRCEN;
 
     // Initialize Flash parallelism, UART peripheral, and launch bootloader FSM
     flash_init();

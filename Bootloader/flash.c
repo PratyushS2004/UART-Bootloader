@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "main.h"
+#include "marker.h"
 #include "stm32f446xx.h"
 #include <stddef.h>
 
@@ -117,6 +118,36 @@ uint8_t erase_for_length(uint32_t payload_length){
     flash_lock();
 
     return erase_ok;
+}
+
+// Checks a payload length can be flashed, without erasing anything. Non-zero, word multiple, fits the app sectors
+uint8_t is_length_valid(uint32_t payload_length){
+    return (payload_length % 4 == 0) && (last_sector(payload_length) != NULL);
+}
+
+// Erases the image marker sector. Kept apart from erase_for_length so that can never reach sector 1
+uint8_t erase_marker(void){
+    uint8_t erase_ok = 0;
+
+    flash_unlock();
+
+    if(wait_BSY()){
+        erase_ok = erase_single_sector(MARKER_SECTOR);
+    }
+
+    flash_lock();
+
+    return erase_ok;
+}
+
+/*
+ * Programs the image marker as magic, then size, then crc. The order is the point: the CRC
+ * word is the commit, so a power cut earlier leaves a record that fails the boot check.
+ */
+uint8_t write_marker(uint32_t size, uint32_t crc){
+    return program_word(MARKER_ADDR + offsetof(Image_marker, magic), MARKER_MAGIC) &&
+           program_word(MARKER_ADDR + offsetof(Image_marker, size),  size)         &&
+           program_word(MARKER_ADDR + offsetof(Image_marker, crc),   crc);
 }
 
 // Sets Flash programming parallelism (PSIZE) for 32-bit operations

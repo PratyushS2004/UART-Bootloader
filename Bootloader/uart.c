@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "main.h"
 #include "vector_check.h"
+#include "marker.h"
 #include <string.h>
 
 #define ACK 0x06U
@@ -43,6 +44,7 @@ static bool assemble_byte(Boot_context *context, uint8_t byte, uint32_t *word);
 static uint32_t bytes_to_word(const uint8_t *buf, uint32_t remaining_bytes);
 static bool verify_chunk_crc(Boot_context *context);
 static bool commit_chunk_to_flash(Boot_context *context);
+static uint32_t image_crc(uint32_t length);
 
 /*
  * Assembles 4 incoming stream bytes into a little-endian 32-bit word.
@@ -80,11 +82,13 @@ void state_machine(void){
       case RX_TOTAL_LENGTH:{
         uint8_t rx_byte = receive_char();
         if (assemble_byte(&context, rx_byte, &context.total_length)) {
-          if(context.total_length >= MAX_PAYLOAD_SIZE){
+          // Reject bad lengths before anything destructive, so a bad request cannot cost us a good marker
+          if(!is_length_valid(context.total_length)){
             context.error_target = IDLE;
             context.state = ERROR;
           }else{
-            if(erase_for_length(context.total_length)){ // Erase for the payload image
+            // Marker goes first so a power cut can never leave a marker over a changed image
+            if(erase_marker() && erase_for_length(context.total_length)){
               context.byte_count = 0;
               context.state = RX_CHUNK_LENGTH;
               send_char(ACK); // Erase completed, send next field
@@ -164,14 +168,23 @@ void state_machine(void){
         break;
       }
       case DONE:{
-        // Validate while UART is still alive, on failure NAK and wait for a new image
+        // Everything that can reject the image runs before the marker is written, and all of it
+        // while UART is still alive. On failure NAK and wait for a new image.
         if (!app_is_valid()) {
           context.error_target = IDLE;
           context.state = ERROR;
           break;
         }
 
-        send_char(ACK); // Image verified and vector table checked, jump is going ahead
+        // Marker is written last, so it only ever vouches for an image that passed every check
+        uint32_t crc = image_crc(context.total_length);
+        if (!write_marker(context.total_length, crc)) {
+          context.error_target = IDLE;
+          context.state = ERROR;
+          break;
+        }
+
+        send_char(ACK); // Image verified, marker written, jump is going ahead
 
         // Wait for Transmission Complete flag
         while((USART2->SR & USART_SR_TC) == 0){ }
@@ -209,6 +222,17 @@ static bool verify_chunk_crc(Boot_context *context) {
  
  context->calculated_CRC = CRC->DR;
  return (context->calculated_CRC == context->received_CRC);
+}
+
+// Computes the hardware CRC over the stored image, reading words straight from Flash
+static uint32_t image_crc(uint32_t length) {
+  CRC->CR = CRC_CR_RESET; // The CRC unit is shared with the chunk check, start from a clean state
+
+  // Length is a multiple of 4. Flash is little-endian, so each word matches what the host fed in
+  for (uint32_t offset = 0; offset < length; offset += 4) {
+    CRC->DR = *(volatile uint32_t *)(FLASH_ADDR + offset);
+  }
+  return CRC->DR;
 }
 
 // Programs chunk buffer contents into target Flash word by word
@@ -279,6 +303,18 @@ bool app_is_valid(void) {
   uint32_t app_msp   = *(volatile uint32_t *)FLASH_ADDR;
   uint32_t app_reset = *(volatile uint32_t *)(FLASH_ADDR + 4);
   return vector_table_valid(app_msp, app_reset);
+}
+
+// True only if the marker is a complete record and its CRC matches the image in Flash
+bool image_marker_valid(void) {
+  volatile const Image_marker *stored = (volatile const Image_marker *)MARKER_ADDR;
+  Image_marker marker = { stored->magic, stored->size, stored->crc };
+
+  // The size must be trusted before it is used as a read length
+  if (!marker_header_valid(&marker)) {
+    return false;
+  }
+  return image_crc(marker.size) == marker.crc;
 }
 
 // Caller must have checked app_is_valid() first, this never returns

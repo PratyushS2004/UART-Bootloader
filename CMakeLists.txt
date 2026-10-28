@@ -42,6 +42,7 @@ target_sources(bootloader PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Bootloader/flash.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Bootloader/uart.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Bootloader/vector_check.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Bootloader/marker.c
 )
 target_link_libraries(bootloader PRIVATE common_startup)
 target_link_options(bootloader PRIVATE
