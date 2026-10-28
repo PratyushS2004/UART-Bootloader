@@ -51,6 +51,12 @@ def compute_chunk_crc(padded_chunk: bytes) -> int:
     return crc
 
 
+def compute_image_crc(padded_chunks) -> int:
+    # One CRC over the whole padded image, so it matches the bootloader's CRC over flash.
+    # Chunks are word multiples, so joining them keeps the word boundaries intact.
+    return compute_chunk_crc(b"".join(padded_chunks))
+
+
 def pad_to_word(data: bytes) -> bytes:
     # Pad to 4-byte boundary using 0xFF (erased flash state)
     remainder = len(data) % 4
@@ -62,12 +68,17 @@ def build_chunks(image: bytes):
         yield pad_to_word(image[i:i + CHUNK_PAYLOAD_SIZE])
 
 
-def send_firmware(port: str, baudrate: int, bin_path: str):
+def send_firmware(port: str, baudrate: int, bin_path: str,
+                  dup_first_chunk: bool = False, send_image_crc: bool = True):
+    # dup_first_chunk resends chunk 1 once after its ACK, which the bootloader cannot tell
+    # apart from a lost ACK. send_image_crc=False speaks the old protocol, only for testing
+    # firmware that predates the image CRC word.
     with open(bin_path, "rb") as f:
         image = f.read()
 
     chunks = list(build_chunks(image))
     total_length = sum(len(c) for c in chunks)
+    image_crc = compute_image_crc(chunks)
 
     print(f"{bin_path}: {len(image)} bytes raw, {total_length} padded, {len(chunks)} chunks")
 
@@ -83,6 +94,10 @@ def send_firmware(port: str, baudrate: int, bin_path: str):
             raise TransferAborted(f"total length rejected or no response: {resp!r}")
         print("total length accepted, erase complete")
 
+        # Sent only after the length ACK, so a rejected length never leaves these bytes in flight
+        if send_image_crc:
+            ser.write(struct.pack("<I", image_crc))
+
         # Switch to shorter timeout for per-chunk streaming
         ser.timeout = CHUNK_ACK_TIMEOUT
         for idx, chunk in enumerate(chunks):
@@ -96,6 +111,10 @@ def send_firmware(port: str, baudrate: int, bin_path: str):
                 resp = ser.read(1)
                 if len(resp) == 1 and resp[0] == ACK:
                     print(f"chunk {idx + 1}/{len(chunks)}: ACK")
+                    if dup_first_chunk and idx == 0:
+                        dup_first_chunk = False
+                        print("test: resending chunk 1 as if its ACK was lost")
+                        continue
                     break
                 print(f"chunk {idx + 1}: retry {attempt}/{MAX_CHUNK_RETRIES} ({resp!r})")
             else:
@@ -109,11 +128,14 @@ def send_firmware(port: str, baudrate: int, bin_path: str):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print(f"Usage: {sys.argv[0]} <port> <baudrate> <firmware.bin>")
+    test_flags = {"--dup-first-chunk", "--no-image-crc"}
+    if len(sys.argv) < 4 or not set(sys.argv[4:]) <= test_flags:
+        print(f"Usage: {sys.argv[0]} <port> <baudrate> <firmware.bin> [--dup-first-chunk] [--no-image-crc]")
         sys.exit(1)
     try:
-        send_firmware(sys.argv[1], int(sys.argv[2]), sys.argv[3])
+        send_firmware(sys.argv[1], int(sys.argv[2]), sys.argv[3],
+                      dup_first_chunk="--dup-first-chunk" in sys.argv,
+                      send_image_crc="--no-image-crc" not in sys.argv)
     except TransferAborted as e:
         print(f"ABORTED: {e}")
         sys.exit(1)

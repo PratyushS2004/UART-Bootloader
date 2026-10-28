@@ -12,7 +12,7 @@
 
 // Bootloader state machine states
 typedef enum{
-  IDLE, RX_TOTAL_LENGTH, RX_CHUNK_LENGTH, RX_CHUNK_PAYLOAD, RX_CHUNK_CRC, DONE, ERROR 
+  IDLE, RX_TOTAL_LENGTH, RX_IMAGE_CRC, RX_CHUNK_LENGTH, RX_CHUNK_PAYLOAD, RX_CHUNK_CRC, DONE, ERROR 
 }Boot_state;
 
 // Bootloader runtime context
@@ -24,6 +24,7 @@ typedef struct{
 
   uint32_t total_length;   // Upfront total image size in bytes
   uint32_t total_bytes_rx; // Cumulative bytes processed across all chunks
+  uint32_t host_image_crc; // CRC of the whole padded image as the host computed it, checked in DONE
 
   uint32_t current_chunk_length; // Expected size of active chunk
   uint32_t chunk_bytes_rx;       // Bytes received for current active chunk
@@ -90,13 +91,21 @@ void state_machine(void){
             // Marker goes first so a power cut can never leave a marker over a changed image
             if(erase_marker() && erase_for_length(context.total_length)){
               context.byte_count = 0;
-              context.state = RX_CHUNK_LENGTH;
-              send_char(ACK); // Erase completed, send next field
+              context.state = RX_IMAGE_CRC;
+              send_char(ACK); // Erase completed, host now sends the image CRC
             }else{
               context.error_target = IDLE;
               context.state = ERROR;
             }
           }
+        }
+        break;
+      }
+      // The host only sends this after the length ACK, so a rejected length leaves nothing in flight
+      case RX_IMAGE_CRC:{
+        uint8_t rx_byte = receive_char();
+        if (assemble_byte(&context, rx_byte, &context.host_image_crc)) {
+          context.state = RX_CHUNK_LENGTH;
         }
         break;
       }
@@ -176,8 +185,16 @@ void state_machine(void){
           break;
         }
 
-        // Marker is written last, so it only ever vouches for an image that passed every check
+        // The chunk CRCs only vouch for each chunk alone. This ties flash to what the host meant to
+        // send, so a repeated or missing chunk cannot pass. The same value then goes in the marker.
         uint32_t crc = image_crc(context.total_length);
+        if (crc != context.host_image_crc) {
+          context.error_target = IDLE;
+          context.state = ERROR;
+          break;
+        }
+
+        // Marker is written last, so it only ever vouches for an image that passed every check
         if (!write_marker(context.total_length, crc)) {
           context.error_target = IDLE;
           context.state = ERROR;
